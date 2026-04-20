@@ -1,0 +1,78 @@
+services:
+  # Servico de LLM local. Roda a engine Ollama que serve o modelo via HTTP.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: chatbot-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # Job one-shot que garante que o modelo configurado esteja baixado.
+  # Roda uma vez no startup e sai. Reexecute com:
+  #   docker compose run --rm ollama-init
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: chatbot-ollama-init
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:1b}
+    entrypoint: /bin/sh
+    command:                                                                                                
+      - -c
+      - "ollama pull $${OLLAMA_MODEL} && echo 'Modelo pronto: '$${OLLAMA_MODEL}"
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: chatbot-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - OLLAMA_URL=http://ollama:11434
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-llama3.2:1b}
+      - OLLAMA_TEMPERATURE=${OLLAMA_TEMPERATURE:-0.7}
+      - OLLAMA_NUM_PREDICT=${OLLAMA_NUM_PREDICT:-512}
+      - MAX_RESPONSE_WORDS=${MAX_RESPONSE_WORDS:-150}
+      - MAX_HISTORY_MESSAGES=${MAX_HISTORY_MESSAGES:-20}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./main.py:/app/main.py
+    command: uvicorn app.api.server:app --host 0.0.0.0 --port 5000 --reload
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: chatbot-frontend
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:5000/api
+      - VITE_APP_NAME=Chatbot Eliane
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  ollama-data:
