@@ -1,0 +1,20 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONPATH=/app
+
+# Dependencias Python instaladas em uma camada cacheavel.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia o pacote da aplicacao e o entry point do terminal.
+COPY app ./app
+COPY main.py ./main.py
+
+EXPOSE 5000
+
+CMD ["uvicorn", "app.api.server:app", "--host", "0.0.0.0", "--port", "5000"]
